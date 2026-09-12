@@ -1,0 +1,10 @@
+# 실제 Firebase 키 등 민감한 설정 파일은 커밋하지 않습니다
+firebase-config.js
+.env
+.env.local
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
