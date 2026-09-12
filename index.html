@@ -265,8 +265,11 @@
   <div id="clock"><div class="drag-handle">⋮⋮ 드래그 ⋮⋮</div><div id="clock-text">로딩중...</div></div>
 
   <div id="graph-wrap">
-    <h4>📈 입자 수 변화 그래프 <span></span></h4>
+    <h4>📈 시간에 따른 입자 수 변화 <span id="graph-legend-inline"></span></h4>
     <canvas id="graph-canvas" width="280" height="110"></canvas>
+    <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--text-dim);margin-top:2px;">
+      <span>시간 (초) →</span><span id="graph-elapsed">0초</span>
+    </div>
     <div class="graph-btns">
       <button id="btn-graph-png">PNG 저장</button>
       <button id="btn-graph-reset">그래프 초기화</button>
@@ -337,14 +340,38 @@
 
     <div class="panel-section">
       <h3>📦 부피 조절</h3>
-      <div class="slider-row">
-        <div class="slabel"><span>부피 배율</span><span class="val" id="vol-val">1.0x</span></div>
-        <input type="range" id="vol-slider" min="30" max="300" value="100" step="1">
-      </div>
-      <div class="btnrow">
-        <button class="mini-btn" id="vol-half">부피 ÷2</button>
-        <button class="mini-btn" id="vol-double">부피 ×2</button>
-        <button class="mini-btn" id="vol-reset">초기화</button>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <svg id="syringe-icon" width="46" height="90" viewBox="0 0 46 90" style="flex-shrink:0;">
+          <!-- 실린더 배럴 -->
+          <rect x="10" y="14" width="26" height="60" rx="3" fill="rgba(177,138,255,0.12)" stroke="#d4b8ff" stroke-width="1.5"/>
+          <!-- 눈금 -->
+          <line x1="10" y1="24" x2="16" y2="24" stroke="#b3a3d9" stroke-width="1"/>
+          <line x1="10" y1="34" x2="16" y2="34" stroke="#b3a3d9" stroke-width="1"/>
+          <line x1="10" y1="44" x2="16" y2="44" stroke="#b3a3d9" stroke-width="1"/>
+          <line x1="10" y1="54" x2="16" y2="54" stroke="#b3a3d9" stroke-width="1"/>
+          <line x1="10" y1="64" x2="16" y2="64" stroke="#b3a3d9" stroke-width="1"/>
+          <!-- 내용물(부피에 따라 높이가 바뀜) -->
+          <rect id="syringe-fluid" x="12" y="40" width="22" height="32" fill="#9b6dff" opacity="0.55"/>
+          <!-- 피스톤 (부피에 따라 위치가 바뀜) -->
+          <g id="syringe-piston">
+            <rect x="8" y="36" width="30" height="6" rx="2" fill="#e6d6ff"/>
+            <rect x="20" y="2" width="6" height="36" fill="#e6d6ff"/>
+            <rect x="12" y="0" width="22" height="6" rx="2" fill="#e6d6ff"/>
+          </g>
+          <!-- 바늘 -->
+          <rect x="21" y="74" width="4" height="14" fill="#d4b8ff"/>
+        </svg>
+        <div style="flex:1;">
+          <div class="slider-row" style="margin-bottom:6px;">
+            <div class="slabel"><span>부피 배율</span><span class="val" id="vol-val">1.0x</span></div>
+            <input type="range" id="vol-slider" min="30" max="300" value="100" step="1">
+          </div>
+          <div class="btnrow">
+            <button class="mini-btn" id="vol-half">부피 ÷2</button>
+            <button class="mini-btn" id="vol-double">부피 ×2</button>
+            <button class="mini-btn" id="vol-reset">초기화</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -364,6 +391,11 @@
         <input type="range" id="speed-slider" min="10" max="300" value="100" step="10">
       </div>
       <div class="row"><label>카메라 자동회전</label><input type="checkbox" id="auto-rotate" checked></div>
+      <div class="row"><label>입자 이름표 표시</label><input type="checkbox" id="show-labels" checked></div>
+      <div class="slider-row" style="margin-top:10px;">
+        <div class="slabel"><span>입자 크기</span><span class="val" id="psize-val">0.18</span></div>
+        <input type="range" id="psize-slider" min="5" max="60" value="18" step="1">
+      </div>
     </div>
   </div>
 

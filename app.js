@@ -58,6 +58,8 @@ const State = {
   particles: [],      // {mesh, speciesId, vel}
   counts: {},         // speciesId -> count
   boxSize: 10,
+  particleRadius: 0.18,
+  showLabels: true,
   recorder: null,
   recordedChunks: [],
   isRecording: false,
@@ -68,7 +70,7 @@ const State = {
 
 // ============ THREE.js 기본 셋업 ============
 let scene, camera, renderer, container;
-let boxMesh, boxEdges;
+let boxMesh, boxEdges, boxGrid;
 let clock3d = new THREE.Clock();
 
 function initThree(){
@@ -109,19 +111,41 @@ function initThree(){
 function buildBox(){
   if(boxMesh) scene.remove(boxMesh);
   if(boxEdges) scene.remove(boxEdges);
+  if(boxGrid) scene.remove(boxGrid);
   const size = State.boxSize * Math.cbrt(State.volumeScale);
   const geo = new THREE.BoxGeometry(size,size,size);
   const mat = new THREE.MeshPhysicalMaterial({
-    color:0x9b6dff, transparent:true, opacity:0.06,
-    roughness:0.1, metalness:0.1, side:THREE.DoubleSide
+    color:0x9b6dff, transparent:true, opacity:0.14,
+    roughness:0.15, metalness:0.15, side:THREE.DoubleSide,
+    emissive:0x6a3fc9, emissiveIntensity:0.25
   });
   boxMesh = new THREE.Mesh(geo, mat);
   scene.add(boxMesh);
 
+  // 선명한 테두리 (연보랏빛 발광)
   const edgeGeo = new THREE.EdgesGeometry(geo);
-  const edgeMat = new THREE.LineBasicMaterial({color:0xd4b8ff, transparent:true, opacity:0.5});
+  const edgeMat = new THREE.LineBasicMaterial({color:0xe6d6ff, transparent:true, opacity:0.95, linewidth:2});
   boxEdges = new THREE.LineSegments(edgeGeo, edgeMat);
   scene.add(boxEdges);
+
+  // 벽면이 잘 보이도록 옅은 격자선 추가
+  const gridMat = new THREE.LineBasicMaterial({color:0xb18aff, transparent:true, opacity:0.22});
+  const gridGroup = new THREE.Group();
+  const divisions = 4;
+  const half = size/2;
+  for(let i=1;i<divisions;i++){
+    const t = -half + (size/divisions)*i;
+    // XY 평면 격자 (앞/뒤 벽)
+    [half,-half].forEach(z=>{
+      const g1 = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-half,t,z), new THREE.Vector3(half,t,z)]);
+      gridGroup.add(new THREE.Line(g1, gridMat));
+      const g2 = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(t,-half,z), new THREE.Vector3(t,half,z)]);
+      gridGroup.add(new THREE.Line(g2, gridMat));
+    });
+  }
+  boxGrid = gridGroup;
+  scene.add(boxGrid);
+
   State._currentBoxSize = size;
 }
 
@@ -187,12 +211,37 @@ function onResize(){
 // ============ 입자(분자) 관리 ============
 function speciesGeometry(id){
   // 분자량 느낌으로 다른 형태 사용 (정성적)
-  return new THREE.SphereGeometry(0.42, 16, 16);
+  return new THREE.SphereGeometry(State.particleRadius, 16, 16);
 }
 
 function clearParticles(){
-  State.particles.forEach(p=>scene.remove(p.mesh));
+  State.particles.forEach(p=>{ scene.remove(p.mesh); if(p.label) scene.remove(p.label); });
   State.particles = [];
+}
+
+// 화학식 이름표를 그린 캔버스 텍스처를 만들어 스프라이트로 반환 (간단한 라벨, 항상 카메라를 향함)
+const labelTextureCache = {};
+function getLabelSprite(name, colorHex){
+  const key = name+colorHex;
+  let tex = labelTextureCache[key];
+  if(!tex){
+    const cnv = document.createElement('canvas');
+    cnv.width = 128; cnv.height = 48;
+    const ctx = cnv.getContext('2d');
+    ctx.clearRect(0,0,128,48);
+    ctx.font = '700 30px Noto Sans KR, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(20,10,35,0.55)';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(4,8,120,32,10) : ctx.rect(4,8,120,32); ctx.fill();
+    ctx.fillStyle = colorHex;
+    ctx.fillText(name, 64, 26);
+    tex = new THREE.CanvasTexture(cnv);
+    labelTextureCache[key] = tex;
+  }
+  const mat = new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false});
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.3,0.5,1);
+  return sprite;
 }
 
 function spawnParticle(speciesDef){
@@ -216,15 +265,43 @@ function spawnParticle(speciesDef){
     (Math.random()*2-1)*speed,
     (Math.random()*2-1)*speed
   );
-  const p = {mesh, speciesId: speciesDef.id, vel, radius:0.42};
+  const p = {mesh, speciesId: speciesDef.id, vel, radius: State.particleRadius, label:null};
+
+  // 라벨은 종당 최대 3개까지만 붙여서 화면이 복잡해지지 않게 함
+  const MAX_LABELS_PER_SPECIES = 3;
+  const existingLabelCount = State.particles.filter(pp=>pp.speciesId===speciesDef.id && pp.label).length;
+  if(State.showLabels && existingLabelCount < MAX_LABELS_PER_SPECIES){
+    const hexStr = '#'+speciesDef.color.toString(16).padStart(6,'0');
+    const sprite = getLabelSprite(speciesDef.name, hexStr);
+    sprite.position.copy(mesh.position);
+    sprite.position.y += State.particleRadius + 0.5;
+    scene.add(sprite);
+    p.label = sprite;
+  }
+
   State.particles.push(p);
   return p;
 }
 
+function setParticleRadius(r){
+  State.particleRadius = Math.max(0.05, Math.min(0.6, r));
+  const newGeo = new THREE.SphereGeometry(State.particleRadius, 16, 16);
+  State.particles.forEach(p=>{
+    p.mesh.geometry.dispose();
+    p.mesh.geometry = newGeo.clone();
+    p.radius = State.particleRadius;
+  });
+  newGeo.dispose();
+}
+
 function removeRandomParticle(speciesId){
-  const idx = State.particles.findIndex(p=>p.speciesId===speciesId);
+  // 라벨 없는 입자를 우선 제거해서 이름표가 최대한 오래 남아있게 함
+  let idx = State.particles.findIndex(p=>p.speciesId===speciesId && !p.label);
+  if(idx<0) idx = State.particles.findIndex(p=>p.speciesId===speciesId);
   if(idx>=0){
-    scene.remove(State.particles[idx].mesh);
+    const p = State.particles[idx];
+    scene.remove(p.mesh);
+    if(p.label) scene.remove(p.label);
     State.particles.splice(idx,1);
     return true;
   }
@@ -237,6 +314,21 @@ function initParticlesFromReaction(){
   r.species.forEach(sp=>{
     State.counts[sp.id] = 0;
     for(let i=0;i<sp.initial;i++){
+      spawnParticle(sp);
+      State.counts[sp.id]++;
+    }
+  });
+  updateParticleCountUI();
+}
+
+// 라벨 켜기/끄기처럼 "현재 입자 수는 유지한 채 다시 그리기"가 필요할 때 사용
+function initParticlesFromReaction_KeepCounts(counts){
+  clearParticles();
+  const r = State.reaction;
+  r.species.forEach(sp=>{
+    const target = counts[sp.id] || 0;
+    State.counts[sp.id] = 0;
+    for(let i=0;i<target;i++){
       spawnParticle(sp);
       State.counts[sp.id]++;
     }
@@ -257,6 +349,10 @@ function stepPhysics(dt){
       if(p.mesh.position[axis] < -half){ p.mesh.position[axis]=-half; p.vel[axis]*=-1; }
     });
     p.mesh.rotation.x += dt*0.6; p.mesh.rotation.y += dt*0.4;
+    if(p.label){
+      p.label.position.copy(p.mesh.position);
+      p.label.position.y += p.radius + 0.5;
+    }
   });
 
   // 충돌 감지 (단순 O(n^2), 입자 수 적당히 제한)
@@ -443,17 +539,46 @@ function setVolumeScale(scale){
   document.getElementById('vol-slider').value = Math.round(State.volumeScale*100);
   document.getElementById('vol-val').textContent = State.volumeScale.toFixed(2)+'x';
   buildBox();
+  updateSyringeIcon();
   updateParticleCountUI();
+}
+
+// 주사기 피스톤/내용물 위치를 부피 배율에 맞춰 갱신 (0.3x~3.0x -> 피스톤이 위/아래로 움직임)
+function updateSyringeIcon(){
+  const piston = document.getElementById('syringe-piston');
+  const fluid = document.getElementById('syringe-fluid');
+  if(!piston || !fluid) return;
+  // scale 0.3(작은 부피, 피스톤이 많이 눌림) ~ 3.0(큰 부피, 피스톤이 위로 당겨짐)
+  const t = (State.volumeScale-0.3)/(3.0-0.3); // 0~1
+  const pistonY = 36 - t*30; // 6 ~ 36
+  const fluidTop = 40 - t*24; // 16 ~ 40
+  piston.setAttribute('transform', `translate(0, ${pistonY-36})`);
+  fluid.setAttribute('y', fluidTop);
+  fluid.setAttribute('height', 72-fluidTop);
 }
 
 // ============ 그래프 ============
 const graphCanvas = document.getElementById('graph-canvas');
 const gctx = graphCanvas.getContext('2d');
-function resetGraph(){ State.graphHistory = []; State.simTime = 0; drawGraph(); }
+function resetGraph(){
+  State.graphHistory = []; State.simTime = 0;
+  drawGraph();
+  buildGraphLegend();
+  document.getElementById('graph-elapsed').textContent = '0초';
+}
 function pushGraphSample(){
   State.graphHistory.push({t:State.simTime, counts:Object.assign({}, State.counts)});
   if(State.graphHistory.length>200) State.graphHistory.shift();
   drawGraph();
+  document.getElementById('graph-elapsed').textContent = Math.round(State.simTime)+'초';
+}
+function buildGraphLegend(){
+  // 간단한 색상 점 + 화학식만 표시 (복잡한 설명 없이)
+  const wrap = document.getElementById('graph-legend-inline');
+  wrap.innerHTML = State.reaction.species.map(sp=>{
+    const hex = '#'+sp.color.toString(16).padStart(6,'0');
+    return `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:6px;font-size:10px;color:var(--text-dim);"><span style="width:7px;height:7px;border-radius:50%;background:${hex};display:inline-block;"></span>${sp.name}</span>`;
+  }).join('');
 }
 function drawGraph(){
   const w = graphCanvas.width, h = graphCanvas.height;
@@ -465,6 +590,15 @@ function drawGraph(){
   let maxVal = 10;
   State.graphHistory.forEach(pt=>species.forEach(s=>{ maxVal = Math.max(maxVal, pt.counts[s.id]||0); }));
   const tMin = State.graphHistory[0].t, tMax = State.graphHistory[State.graphHistory.length-1].t || 1;
+
+  // 옅은 가로 격자선 (눈금 역할)
+  gctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  gctx.lineWidth = 1;
+  for(let i=1;i<4;i++){
+    const y = h*i/4;
+    gctx.beginPath(); gctx.moveTo(0,y); gctx.lineTo(w,y); gctx.stroke();
+  }
+
   species.forEach(sp=>{
     gctx.beginPath();
     gctx.strokeStyle = '#'+sp.color.toString(16).padStart(6,'0');
@@ -853,6 +987,17 @@ function bindUI(){
     document.getElementById('speed-val').textContent = State.simSpeed.toFixed(1)+'x';
   });
   document.getElementById('auto-rotate').addEventListener('change', e=>{ State.autoRotate = e.target.checked; });
+  document.getElementById('show-labels').addEventListener('change', e=>{
+    State.showLabels = e.target.checked;
+    // 라벨을 껐다 켰다 할 때 현재 입자 구성을 유지한 채 라벨만 재생성
+    const counts = Object.assign({}, State.counts);
+    initParticlesFromReaction_KeepCounts(counts);
+  });
+  document.getElementById('psize-slider').addEventListener('input', e=>{
+    const r = parseFloat(e.target.value)/100;
+    setParticleRadius(r);
+    document.getElementById('psize-val').textContent = r.toFixed(2);
+  });
 
   document.getElementById('ai-send').addEventListener('click', ()=>{
     const inp = document.getElementById('ai-input');
@@ -877,6 +1022,7 @@ function init(){
   initThree();
   initClock();
   bindUI();
+  updateSyringeIcon();
   setReaction('no2_n2o4');
   aiAppendMsg("안녕하세요! 온도, 부피, 입자 수 조정을 자연어로 요청해보세요. 예: '온도를 400K로 올려줘'", 'bot');
 }
